@@ -1,52 +1,51 @@
 import requests
 import json
-import time
 from datetime import datetime
 
 
 class SolaxCrawler():
 
-    def get_data(self):
+    def __init__(self):
         date_today = datetime.now().strftime('%Y-%m-%d')
-        original_url = 'https://www.solaxcloud.com/i18n/language.do?language=en_US&url=/views/index.jsp'
-        login_url = 'https://www.solaxcloud.com/login/login.do'
-        logout_url = 'https://www.solaxcloud.com/login/loginOut.do'
+        self.original_url = 'https://www.solaxcloud.com/i18n/language.do?language=en_US&url=/views/index.jsp'
+        self.login_url = 'https://www.solaxcloud.com/login/login.do'
+        self.data_url = 'https://www.solaxcloud.com/userIndex/getCurrentData.do?currentTime=' + date_today + '+12%3A01%3A42'
+        self.logout_url = 'https://www.solaxcloud.com/login/loginOut.do'
 
-        power_url = 'https://www.solaxcloud.com/userIndex/getPower.do'
-        yield_url = 'https://www.solaxcloud.com/device/getPage.do?enableFlag=&SN=&siteId=&siteName=&loginName=&currentTime=' + date_today + '+21%3A28%3A24&wifiSN=&inverterType=&nation=&size=10&current=1'
-
-        #you should use your own here (just inspect your browser and copy it)
-        headers = {
-             'user-agent': 'Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:47.0) Gecko/20100101 Firefox/47.0'
+        self.headers = {
+            'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) '
+                          'Chrome/80.0.3987.132 Safari/537.36'
         }
 
-        login_data = {
-            'username': 'Username',
-            'userpwd': 'Password', #the password should be encrypted with md5
-            'roletype': '5'        #password = 5f4dcc3b5aa765d61d8327deb882cf99
-        }
 
-        solax_session = requests.session()
-        # if you want to verify the Certificate you have to install the Certificate from the solax site
-        # and run refer to it in the verify param
-        solax_session.post(login_url, data=login_data, headers=headers, verify=False)
+    def get_data(self, session):
+        data_response = session.post(self.data_url, headers=self.headers, verify=False)
+        data = json.loads(data_response.text)
 
-        solax_session.get(original_url, headers=headers, verify=False)
-        time.sleep(1)
-        response_power = solax_session.get(power_url, headers=headers, verify=False)
-        current_power = json.loads(response_power.text)['gridPower']
-
-        response_yield = solax_session.get(yield_url, headers=headers, verify=False)
-        yield_data = json.loads(response_yield.text)['rows'][0]
-        daily_yield = yield_data['todayYield']
-        total_yield = yield_data['totalYield']
+        daily_yield = data['todayYield']
+        monthly_yield = data['monthYield']
+        yearly_yield = data['yearYield']
+        total_yield = data['totalYield']
+        current_power = data['gridpower']
 
         # close session
-        r = requests.get(logout_url, verify=False)
-        q = requests.post(logout_url, verify=False, headers={'Connection': 'close'})
+        requests.get(self.logout_url, verify=False)
+        requests.post(self.logout_url, verify=False, headers={'Connection': 'close'})
+        return current_power, daily_yield, yearly_yield
 
-        return current_power, daily_yield, total_yield
+    def initiate_login_session(self, username, password):
+        login_data = {'roletype': '5'}
+        login_data.update({'username': username, 'userpwd': password})
+
+        session = requests.session()
+        session.post(self.login_url, data=login_data, headers=self.headers, verify=False)
+        session.get(self.original_url, headers=self.headers, verify=False)
+        return session
+
+
+username = 'user'
+password = '5f4dcc3b5aa765d61d8327deb882cf99'
 
 solaxretriever = SolaxCrawler()
-data = solaxretriever.get_data()
-print(data)
+solax_session = solaxretriever.initiate_login_session(username, password)
+data = solaxretriever.get_data(solax_session)
