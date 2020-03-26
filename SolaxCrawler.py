@@ -20,6 +20,9 @@ class SolaxCrawler():
 
     def get_data(self, session):
         data_response = session.post(self.data_url, headers=self.headers, verify=False)
+
+        if not self.is_json(data_response.text):
+            return 0, 0, 0
         data = json.loads(data_response.text)
 
         daily_yield = data['todayYield']
@@ -42,6 +45,13 @@ class SolaxCrawler():
         session.get(self.original_url, headers=self.headers, verify=False)
         return session
 
+    def is_json(self, json_file):
+        try:
+            json_object = json.loads(json_file)
+        except ValueError as e:
+            return False
+        return True
+
 
 username = 'user'
 password = '5f4dcc3b5aa765d61d8327deb882cf99'
@@ -49,3 +59,4 @@ password = '5f4dcc3b5aa765d61d8327deb882cf99'
 solaxretriever = SolaxCrawler()
 solax_session = solaxretriever.initiate_login_session(username, password)
 data = solaxretriever.get_data(solax_session)
+print(data)
