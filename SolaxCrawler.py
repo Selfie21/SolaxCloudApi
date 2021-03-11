@@ -8,11 +8,10 @@ class SolaxCrawler():
     def __init__(self):
         date_today = datetime.now().strftime('%Y-%m-%d')
         core_url = 'https://www.solaxcloud.com'
-        self.original_url = core_url + '/i18n/language.do?language=en_US&url=/views/index.jsp'
-        self.login_url = core_url + '/login/login.do'
-        self.data_url = core_url + '/userIndex/getCurrentData.do'
-        self.backup_url = core_url + '/userIndex/getYield.do'
-        self.logout_url = core_url + '/login/loginOut.do'
+        self.original_url = core_url + '/#/overview'
+        self.login_url = core_url + '/phoebus/login/loginNew'
+        self.data_url = core_url + '/phoebus/userIndex/getSiteInfo'
+        self.logout_url = core_url + '/phoebus/websiteLocation/getLocation'
 
         self.headers = {
             'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) '
@@ -20,15 +19,7 @@ class SolaxCrawler():
         }
 
         self.data_params = {
-            ('currentTime', date_today + ' 12:01:42')
-        }
-
-        self.backup_params = {
-            ('reportType', '4'),
-            ('day', str(datetime.now().day)),
-            ('month', str(datetime.now().month)),
-            ('year', str(datetime.now().year)),
-            ('webTime', datetime.now().strftime('%Y,%m,%d'))
+            'siteId': '710029268595245056'
         }
 
 
@@ -42,18 +33,12 @@ class SolaxCrawler():
         data = json.loads(data_response.text)
         daily_yield = data['todayYield']
         yearly_yield = data['yearYield']
-        current_power = data['gridpower']
-
-        # the solax website sometimes has the bug where it shows the daily yield as yearly yield
-        # if that happens i take the yearly yield from another source
-        if daily_yield == yearly_yield:
-            data_response = session.post(self.backup_url, params=self.backup_params, headers=self.headers, verify=False)
-            data = json.loads(data_response.text)
-            yearly_yield = self.find_year_data(data['returnList'], 2020)
+        current_power = data['gridPower']
 
         # close session
         requests.get(self.logout_url, verify=False)
         requests.post(self.logout_url, verify=False, headers={'Connection': 'close'})
+
         return current_power, daily_yield, yearly_yield
 
     def initiate_login_session(self, username, password):
@@ -80,7 +65,7 @@ class SolaxCrawler():
 
 
 username = 'test'
-password = '098f6bcd4621d373cade4e832627b4f6'
+password = 'cc03e747a6afbbcbf8be7668acfebee5'
 
 solaxretriever = SolaxCrawler()
 solax_session = solaxretriever.initiate_login_session(username, password)
