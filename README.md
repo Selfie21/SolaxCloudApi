@@ -4,3 +4,5 @@ Has different functionalities most importantly getting the data from the Solax C
 If you want to verify the Certificate you have to install the Certificate from the solax site and refer to it in the verify param. Can't really do this since I am using it for my Alexa Skill.
 
 Don't call the API to often, since it will get slowed down significantly. This isn't really a good way to access the Cloud anyway. But I guess since they don't have an API this is the best way.
+
+Update: They finally added an API! I will see if you can retrieve all the data I need aswell as if you can access it without buying extra stuff.
