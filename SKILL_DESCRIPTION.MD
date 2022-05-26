@@ -19,6 +19,6 @@ _**Information**_
 
 _**Yield**_
 
-Output information is total yield today, total yield overall and battery power.
+Output information is total yield today, total yield overall and battery power. If you would like any other features feel free to leave a comment below.
 
 I am not associated with Solax Cloud in any way, this merely provides an interface for using their service and I am not making any money with this Skill.
