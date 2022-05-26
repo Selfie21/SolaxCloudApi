@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """Simple Solax app."""
 
-
 import random
 import logging
 import json
@@ -33,9 +32,9 @@ ddb_table_name = os.environ.get('DYNAMODB_PERSISTENCE_TABLE_NAME')
 ddb_resource = boto3.resource('dynamodb', region_name=ddb_region)
 dynamodb_adapter = DynamoDbAdapter(table_name=ddb_table_name, create_table=False, dynamodb_resource=ddb_resource)
 
+
 # Rest API Client
 class Client:
-
     session = Session()
 
     @staticmethod
@@ -53,7 +52,7 @@ class Client:
             raise
         else:
             if not data['success']:
-                raise Exception(data['exception'])
+                return None
             return data['result']
 
     @staticmethod
@@ -63,50 +62,95 @@ class Client:
         return content
 
 
-
 # Built-in Intent Handlers
 class LaunchHandler(AbstractRequestHandler):
     """Handler for Skill Launch"""
 
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
-        return is_request_type("LaunchRequest")(handler_input)
+        return (is_request_type("LaunchRequest")(handler_input)) or (is_intent_name("InformationIntent")(handler_input))
 
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
         logger.info("In LaunchHandler")
 
-        # get localization data
-        data = handler_input.attributes_manager.request_attributes["_"]
-
-        # write persistence
+        # Persistence
         attr = handler_input.attributes_manager.persistent_attributes
-        if not attr:
-            attr['counter'] = 0
-            attr['state'] = 'ENDED'
 
+        user_id = handler_input.request_envelope.session.user.user_id
+
+        if not attr:
+            attr['token_id'] = 0
+            attr['site_id'] = 0
+            handler_input.attributes_manager.session_attributes = attr
+            handler_input.attributes_manager.save_persistent_attributes()
+            speech = 'Please enter token identification and site identification, by saying login. If you need help check the Skill Description in the Skill Store.'
+            handler_input.response_builder.speak(speech).ask('')
+            return handler_input.response_builder.response
+        elif attr['token_id'] == 0:
+            speech = 'Please enter token identification and site identification, by saying login. If you need help check the Skill Description in the Skill Store.'
+            handler_input.response_builder.speak(speech).ask('')
+            return handler_input.response_builder.response
+        else:
+
+            # Get Personal data
+            attr = handler_input.attributes_manager.persistent_attributes
+            token_id = attr['token_id']
+            site_id = attr['site_id']
+
+            # token id 20220524015936043146470 site id SWBBCCDVNZ
+            ENDPOINT = r'https://www.solaxcloud.com:9443/proxy/api/getRealtimeInfo.do'
+            kwargs = {'tokenId': token_id, 'sn': site_id}
+            data = Client.request('GET', ENDPOINT, **kwargs)
+
+            # Check if Succesfully received
+            if data is None:
+                speech = 'Wrong token data entered. At least did not receive a valid response from Solax Server. Please try again!'
+            acpower = data['acpower']
+            today_kwh = data['yieldtoday']
+            total_kwh = data['yieldtotal']
+            bat_pow = data['batPower']
+            speech = 'Total Yield today is: ' + str(int(today_kwh)) + 'kwh. Total Yield is: ' + str(
+                int(total_kwh)) + 'kwh. Current Battery Power is: ' + str(int(bat_pow))
+
+            handler_input.response_builder.speak(speech).ask('')
+            return handler_input.response_builder.response
+
+
+class AnswerHandler(AbstractRequestHandler):
+    """Handler for Skill Launch and GetNewFact Intent."""
+
+    def can_handle(self, handler_input):
+        # type: (HandlerInput) -> bool
+        return (is_intent_name("AnswerIntent")(handler_input))
+
+    def handle(self, handler_input):
+        # type: (HandlerInput) -> Response
+        logger.info("In AnswerIntent")
+        slots = handler_input.request_envelope.request.intent.slots
+
+        # Input data from user to persistence
+        attr = handler_input.attributes_manager.persistent_attributes
+        unfiltered_token_id = slots['tokenid'].value
+        unfiltered_site_id = slots['siteid'].value
+        token_id = ''.join(filter(str.isdigit, str(unfiltered_token_id)))
+        site_id = ''.join(filter(str.isalpha, str(unfiltered_site_id)))
+        attr['token_id'] = token_id
+        attr['site_id'] = site_id
         handler_input.attributes_manager.session_attributes = attr
         handler_input.attributes_manager.save_persistent_attributes()
 
-        #read persistence
-        session_attr = handler_input.attributes_manager.session_attributes
-        session_attr['state'] = "STARTED"
-        session_attr["counter"] += 1
-        handler_input.attributes_manager.persistent_attributes = session_attr
-        handler_input.attributes_manager.save_persistent_attributes()
-
-
-        token_id = '20220524015936043146470'
-        site_id = 'SWBBCCDVNZ'
+        # Test if data is correct
         ENDPOINT = r'https://www.solaxcloud.com:9443/proxy/api/getRealtimeInfo.do'
-        kwargs = {'tokenId': token_id,
-                  'sn': site_id}
+        kwargs = {'tokenId': token_id, 'sn': site_id}
         data = Client.request('GET', ENDPOINT, **kwargs)
-        acpower = data['acpower']
-        today_kwh = data['yieldtoday']
-        total_kwh = data['yieldtotal']
-        speech = 'Total Power produce today is: ' + str(today_kwh)
-        handler_input.response_builder.speak(speech)
+
+        # Output result if correct, else exception is thrown
+        if data is None:
+            speech = 'Wrong token data entered. At least did not receive a valid response from Solax Server. Please try again!'
+        else:
+            speech = 'Succesfully saved your input data!'
+        handler_input.response_builder.speak(speech).ask('')
         return handler_input.response_builder.response
 
 
@@ -128,7 +172,7 @@ class HelpIntentHandler(AbstractRequestHandler):
         reprompt = data[prompts.HELP_REPROMPT]
         handler_input.response_builder.speak(speech).ask(
             reprompt).set_card(SimpleCard(
-                data[prompts.SKILL_NAME], speech))
+            data[prompts.SKILL_NAME], speech))
         return handler_input.response_builder.response
 
 
@@ -259,9 +303,9 @@ class ResponseLogger(AbstractResponseInterceptor):
 
 
 # Register intent handlers
-sb = CustomSkillBuilder(persistence_adapter = dynamodb_adapter)
+sb = CustomSkillBuilder(persistence_adapter=dynamodb_adapter)
 
-
+sb.add_request_handler(AnswerHandler())
 sb.add_request_handler(LaunchHandler())
 sb.add_request_handler(HelpIntentHandler())
 sb.add_request_handler(CancelOrStopIntentHandler())

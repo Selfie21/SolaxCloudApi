@@ -10,12 +10,16 @@ if __name__ == "__main__":
               'sn': site_id}
 
     data = Client.request('GET', ENDPOINT, **kwargs)
+    speech = ''
+
+    if data is None:
+        speech = 'Wrong token data entered. At least did not receive a valid response from Solax Server. Please try again!'
 
     acpower = data['acpower']
     today_kwh = data['yieldtoday']
     total_kwh = data['yieldtotal']
     bat_pow = data['batPower']
-    print(today_kwh)
+    speech = 'Total Yield today is: ' + str(int(today_kwh)) + 'kwh. Total Yield is: ' + str(int(total_kwh)) + 'kwh. Current Battery Power is: ' + str(int(bat_pow))
 
 
 """

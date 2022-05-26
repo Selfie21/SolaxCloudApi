@@ -20,7 +20,7 @@ class Client:
             raise
         else:
             if not data['success']:
-                raise Exception(data['exception'])
+                return None
             return data['result']
 
     @staticmethod

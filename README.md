@@ -1,8 +1,8 @@
 # SolaxCloudApi
-Has different functionalities most importantly getting the data from the Solax Cloud Portal. Gets your data from the Solax Cloud via the SolaxCrawler class. The Password has to be run through an MD5 hash (https://md5generator.de/).
 
-If you want to verify the Certificate you have to install the Certificate from the solax site and refer to it in the verify param. Can't really do this since I am using it for my Alexa Skill.
+Has different functionalities most importantly getting the data from the Solax Cloud Portal. I have now implemented everything with the usage for an the new API.
+Access works via the token id and a respective site_id (sn). For more infor refer to https://www.solaxcloud.com/phoebus/resource/files/userGuide/Solax_API.pdf?token=b4ffe250-1f84-4bf2-807c-21f973d7cab8&lang=de_DE.
 
-Don't call the API to often, since it will get slowed down significantly. This isn't really a good way to access the Cloud anyway. But I guess since they don't have an API this is the best way.
+I have also included the main page for an Alexa skill I will release on the Alexa Skill Store.
 
-Update: They finally added an API! I will see if you can retrieve all the data I need aswell as if you can access it without buying extra stuff.
+~~Update: They finally added an API! I will see if you can retrieve all the data I need aswell as if you can access it without buying extra stuff.~~
