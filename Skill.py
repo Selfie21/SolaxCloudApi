@@ -1,195 +1,113 @@
 # -*- coding: utf-8 -*-
+"""Simple Solax app."""
 
-# This sample demonstrates handling intents from an Alexa skill using the Alexa Skills Kit SDK for Python.
-# Please visit https://alexa.design/cookbook for additional examples on implementing slots, dialog management,
-# session persistence, api calls, and more.
-# This sample is built using the handler classes approach in skill builder.
+
+import random
 import logging
-import ask_sdk_core.utils as ask_utils
+import json
+import prompts
+import os
+import boto3
+from requests import Request, Session
 
 from ask_sdk_core.skill_builder import SkillBuilder
-from ask_sdk_core.dispatch_components import AbstractRequestHandler
-from ask_sdk_core.dispatch_components import AbstractExceptionHandler
+from ask_sdk_core.dispatch_components import (
+    AbstractRequestHandler, AbstractExceptionHandler,
+    AbstractRequestInterceptor, AbstractResponseInterceptor)
+from ask_sdk_core.utils import is_request_type, is_intent_name
 from ask_sdk_core.handler_input import HandlerInput
+from ask_sdk_core.skill_builder import CustomSkillBuilder
+from ask_sdk_dynamodb.adapter import DynamoDbAdapter
+
+from ask_sdk_model.ui import SimpleCard
 from ask_sdk_model import Response
 
-import requests
-import json
-import time
-from datetime import datetime
-from random import randrange
-
+sb = SkillBuilder()
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
-import requests
-import json
-from datetime import datetime
+# Persistence
+ddb_region = os.environ.get('DYNAMODB_PERSISTENCE_REGION')
+ddb_table_name = os.environ.get('DYNAMODB_PERSISTENCE_TABLE_NAME')
 
+ddb_resource = boto3.resource('dynamodb', region_name=ddb_region)
+dynamodb_adapter = DynamoDbAdapter(table_name=ddb_table_name, create_table=False, dynamodb_resource=ddb_resource)
 
-class SolaxCrawler():
+# Rest API Client
+class Client:
 
-    def __init__(self):
-        date_today = datetime.now().strftime('%Y-%m-%d')
-        self.original_url = 'https://www.solaxcloud.com/i18n/language.do?language=en_US&url=/views/index.jsp'
-        self.login_url = 'https://www.solaxcloud.com/login/login.do'
-        self.data_url = 'https://www.solaxcloud.com/userIndex/getCurrentData.do?currentTime=' + date_today + '+12%3A01%3A42'
-        self.logout_url = 'https://www.solaxcloud.com/login/loginOut.do'
-
-        self.headers = {
-            'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) '
-                          'Chrome/80.0.3987.132 Safari/537.36'
-        }
-
-    def get_data(self, session):
-        data_response = session.post(self.data_url, headers=self.headers, verify=False)
-        data = json.loads(data_response.text)
-
-        daily_yield = data['todayYield']
-        monthly_yield = data['monthYield']
-        yearly_yield = data['yearYield']
-        total_yield = data['totalYield']
-        current_power = data['gridpower']
-
-        # close session
-        requests.get(self.logout_url, verify=False)
-        requests.post(self.logout_url, verify=False, headers={'Connection': 'close'})
-        return current_power, daily_yield, yearly_yield
-
-    def initiate_login_session(self, username, password):
-        login_data = {'roletype': '5'}
-        login_data.update({'username': username, 'userpwd': password})
-
-        session = requests.session()
-        session.post(self.login_url, data=login_data, headers=self.headers, verify=False)
-        session.get(self.original_url, headers=self.headers, verify=False)
-        return session
-
-
-class WeatherDataRetriever():
-
-    def __init__(self):
-        self.weatherurl = 'http://api.openweathermap.org/data/2.5/forecast?q=Mumbai&cnt=5&appid=d87a44b604cc9d9b83b00af3ac1ddde8'
-
-    def get_estimated_yield(self):
-        cloud_average = self.get_weather_data() / 100
-        month = datetime.now().month
-
-        sun_hours = 13 - (13 * cloud_average)
-        m = 1.01278225014726
-        c = 1.41708226978205
-        daily_yield = m * sun_hours + c
-
-        if month < 4 or month > 9:
-            return daily_yield
-        elif 3 <= month < 6:
-            return daily_yield + 1
-        else:
-            return daily_yield + 2
-
-    def get_weather_data(self):
-        response = requests.get(self.weatherurl)
-        weather_data = json.loads(response.text)['list']
-        cloud_average = self.calculate_average_clouds(weather_data)
-        return cloud_average
-
-    def calculate_average_clouds(self, data):
-        cloud_percentage_daily_average = counter = 0
-
-        for hourly_data in data:
-            timestamp = hourly_data['dt']
-            count_until_time = WeatherDataRetriever.convert_timestamp_to_hour(timestamp)
-            if count_until_time < 20:
-                current_cloud_percentage = hourly_data['clouds']['all']
-                cloud_percentage_daily_average += current_cloud_percentage
-                counter += 1
-            elif counter == 0:
-                current_cloud_percentage = hourly_data['clouds']['all']
-                cloud_percentage_daily_average += current_cloud_percentage
-                counter += 1
-            else:
-                break
-        return cloud_percentage_daily_average / counter
+    session = Session()
 
     @staticmethod
-    def convert_timestamp_to_hour(timestamp):
-        return datetime.fromtimestamp(timestamp).hour - 1
+    def send_request(method, adress, **kwargs):
+        request = Request(method, adress, params=kwargs)
+        prepared = request.prepare()
+        return Client.session.send(prepared)
+
+    @staticmethod
+    def process_request(response):
+        try:
+            data = response.json()
+        except ValueError:
+            response.raise_for_status()
+            raise
+        else:
+            if not data['success']:
+                raise Exception(data['exception'])
+            return data['result']
+
+    @staticmethod
+    def request(method, adress, **kwargs):
+        response = Client.send_request(method, adress, **kwargs)
+        content = Client.process_request(response)
+        return content
 
 
-class LaunchRequestHandler(AbstractRequestHandler):
-    """Handler for Skill Launch."""
 
-    def can_handle(self, handler_input):
-        # type: (HandlerInput) -> bool
-
-        return ask_utils.is_request_type("LaunchRequest")(handler_input)
-
-    def handle(self, handler_input):
-        # type: (HandlerInput) -> Response
-
-        speak_output = "Welcome to your solax cloud what would you like to know?"
-        return (
-            handler_input.response_builder
-                .speak(speak_output)
-                .ask("")
-                .response
-        )
-
-
-class PredictionIntentHandler(AbstractRequestHandler):
-    """Handler for PredictionIntent"""
-
-    def can_handle(self, handler_input):
-        # type: (HandlerInput) -> bool
-        return ask_utils.is_intent_name("PredictionIntent")(handler_input)
-
-    def handle(self, handler_input):
-        # type: (HandlerInput) -> Response
-
-        dataretriever = WeatherDataRetriever()
-        estimated_daily_yield = round(dataretriever.get_estimated_yield(), 2)
-        speak_output = "The predicted amount for your farm is " + str(
-            estimated_daily_yield) + "  Kilowatt Hours"
-
-        return (
-            handler_input.response_builder
-                .speak(speak_output)
-                .ask("")
-                .response
-        )
-
-
-class InformationIntentHandler(AbstractRequestHandler):
-    """Handler for InformationIntent"""
+# Built-in Intent Handlers
+class LaunchHandler(AbstractRequestHandler):
+    """Handler for Skill Launch"""
 
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
-        return ask_utils.is_intent_name("InformationIntent")(handler_input)
+        return is_request_type("LaunchRequest")(handler_input)
 
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
+        logger.info("In LaunchHandler")
 
-        username = 'user'
-        password = '5f4dcc3b5aa765d61d8327deb882cf99'
+        # get localization data
+        data = handler_input.attributes_manager.request_attributes["_"]
 
-        solaxretriever = SolaxCrawler()
-        solax_session = solaxretriever.initiate_login_session(username, password)
-        data = solaxretriever.get_data(solax_session)
+        # write persistence
+        attr = handler_input.attributes_manager.persistent_attributes
+        if not attr:
+            attr['counter'] = 0
+            attr['state'] = 'ENDED'
 
-        current_power = int(data[0])
-        daily_yield = data[1]
-        yearly_yield = int(data[2])
+        handler_input.attributes_manager.session_attributes = attr
+        handler_input.attributes_manager.save_persistent_attributes()
 
-        speak_output = "The Farm is currently producing " + str(current_power) + " Watt and has produced " + str(
-            daily_yield) + " Kilowatt Hours already. Total this year : " + str(
-            yearly_yield) + " Kilowatt Hours"
+        #read persistence
+        session_attr = handler_input.attributes_manager.session_attributes
+        session_attr['state'] = "STARTED"
+        session_attr["counter"] += 1
+        handler_input.attributes_manager.persistent_attributes = session_attr
+        handler_input.attributes_manager.save_persistent_attributes()
 
-        return (
-            handler_input.response_builder
-                .speak(speak_output)
-                .ask("")
-                .response
-        )
+
+        token_id = '20220524015936043146470'
+        site_id = 'SWBBCCDVNZ'
+        ENDPOINT = r'https://www.solaxcloud.com:9443/proxy/api/getRealtimeInfo.do'
+        kwargs = {'tokenId': token_id,
+                  'sn': site_id}
+        data = Client.request('GET', ENDPOINT, **kwargs)
+        acpower = data['acpower']
+        today_kwh = data['yieldtoday']
+        total_kwh = data['yieldtotal']
+        speech = 'Total Power produce today is: ' + str(today_kwh)
+        handler_input.response_builder.speak(speech)
+        return handler_input.response_builder.response
 
 
 class HelpIntentHandler(AbstractRequestHandler):
@@ -197,17 +115,21 @@ class HelpIntentHandler(AbstractRequestHandler):
 
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
-        return ask_utils.is_intent_name("AMAZON.HelpIntent")(handler_input)
+        return is_intent_name("AMAZON.HelpIntent")(handler_input)
 
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
-        speak_output = "You can say hello to me! How can I help?"
+        logger.info("In HelpIntentHandler")
 
-        return (
-            handler_input.response_builder
-                .speak(speak_output)
-                .response
-        )
+        # get localization data
+        data = handler_input.attributes_manager.request_attributes["_"]
+
+        speech = data[prompts.HELP_MESSAGE]
+        reprompt = data[prompts.HELP_REPROMPT]
+        handler_input.response_builder.speak(speech).ask(
+            reprompt).set_card(SimpleCard(
+                data[prompts.SKILL_NAME], speech))
+        return handler_input.response_builder.response
 
 
 class CancelOrStopIntentHandler(AbstractRequestHandler):
@@ -215,18 +137,70 @@ class CancelOrStopIntentHandler(AbstractRequestHandler):
 
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
-        return (ask_utils.is_intent_name("AMAZON.CancelIntent")(handler_input) or
-                ask_utils.is_intent_name("AMAZON.StopIntent")(handler_input))
+        return (is_intent_name("AMAZON.CancelIntent")(handler_input) or
+                is_intent_name("AMAZON.StopIntent")(handler_input))
 
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
-        speak_output = "Goodbye!"
+        logger.info("In CancelOrStopIntentHandler")
 
-        return (
-            handler_input.response_builder
-                .speak(speak_output)
-                .response
-        )
+        # get localization data
+        data = handler_input.attributes_manager.request_attributes["_"]
+
+        speech = data[prompts.STOP_MESSAGE]
+        handler_input.response_builder.speak(speech)
+        return handler_input.response_builder.response
+
+
+class FallbackIntentHandler(AbstractRequestHandler):
+    """Handler for Fallback Intent.
+
+    AMAZON.FallbackIntent is only available in en-US locale.
+    This handler will not be triggered except in that locale,
+    so it is safe to deploy on any locale.
+    """
+
+    def can_handle(self, handler_input):
+        # type: (HandlerInput) -> bool
+        return is_intent_name("AMAZON.FallbackIntent")(handler_input)
+
+    def handle(self, handler_input):
+        # type: (HandlerInput) -> Response
+        logger.info("In FallbackIntentHandler")
+
+        # get localization data
+        data = handler_input.attributes_manager.request_attributes["_"]
+
+        speech = data[prompts.FALLBACK_MESSAGE]
+        reprompt = data[prompts.FALLBACK_REPROMPT]
+        handler_input.response_builder.speak(speech).ask(
+            reprompt)
+        return handler_input.response_builder.response
+
+
+class LocalizationInterceptor(AbstractRequestInterceptor):
+    """
+    Add function to request attributes, that can load locale specific data.
+    """
+
+    def process(self, handler_input):
+        locale = handler_input.request_envelope.request.locale
+        logger.info("Locale is {}".format(locale))
+
+        # localized strings stored in language_strings.json
+        with open("language_strings.json") as language_prompts:
+            language_data = json.load(language_prompts)
+        # set default translation data to broader translation
+        if locale[:2] in language_data:
+            data = language_data[locale[:2]]
+            # if a more specialized translation exists, then select it instead
+            # example: "fr-CA" will pick "fr" translations first, but if "fr-CA" translation exists,
+            # then pick that instead
+            if locale in language_data:
+                data.update(language_data[locale])
+        else:
+            data = language_data[locale]
+        handler_input.attributes_manager.request_attributes["_"] = data
 
 
 class SessionEndedRequestHandler(AbstractRequestHandler):
@@ -234,44 +208,21 @@ class SessionEndedRequestHandler(AbstractRequestHandler):
 
     def can_handle(self, handler_input):
         # type: (HandlerInput) -> bool
-        return ask_utils.is_request_type("SessionEndedRequest")(handler_input)
+        return is_request_type("SessionEndedRequest")(handler_input)
 
     def handle(self, handler_input):
         # type: (HandlerInput) -> Response
+        logger.info("In SessionEndedRequestHandler")
 
-        # Any cleanup logic goes here.
-
+        logger.info("Session ended reason: {}".format(
+            handler_input.request_envelope.request.reason))
         return handler_input.response_builder.response
 
 
-class IntentReflectorHandler(AbstractRequestHandler):
-    """The intent reflector is used for interaction model testing and debugging.
-    It will simply repeat the intent the user said. You can create custom handlers
-    for your intents by defining them above, then also adding them to the request
-    handler chain below.
-    """
-
-    def can_handle(self, handler_input):
-        # type: (HandlerInput) -> bool
-        return ask_utils.is_request_type("IntentRequest")(handler_input)
-
-    def handle(self, handler_input):
-        # type: (HandlerInput) -> Response
-        intent_name = ask_utils.get_intent_name(handler_input)
-        speak_output = "You just triggered " + intent_name + "."
-
-        return (
-            handler_input.response_builder
-                .speak(speak_output)
-                # .ask("add a reprompt if you want to keep the session open for the user to respond")
-                .response
-        )
-
-
+# Exception Handler
 class CatchAllExceptionHandler(AbstractExceptionHandler):
-    """Generic error handling to capture any syntax or routing errors. If you receive an error
-    stating the request handler chain is not found, you have not implemented a handler for
-    the intent being invoked or included it in the skill builder below.
+    """Catch all exception handler, log exception and
+    respond with custom message.
     """
 
     def can_handle(self, handler_input, exception):
@@ -280,35 +231,50 @@ class CatchAllExceptionHandler(AbstractExceptionHandler):
 
     def handle(self, handler_input, exception):
         # type: (HandlerInput, Exception) -> Response
+        logger.info("In CatchAllExceptionHandler")
         logger.error(exception, exc_info=True)
 
-        speak_output = "Da ist wohl was schiefgelaufen. Pierre hat irgendwie Mist gebaut, bitte eine Nachricht an ihn schreiben was ihr gesagt habt."
+        handler_input.response_builder.speak(EXCEPTION_MESSAGE).ask(
+            HELP_REPROMPT)
 
-        return (
-            handler_input.response_builder
-                .speak(speak_output)
-                .ask(speak_output)
-                .response
-        )
+        return handler_input.response_builder.response
 
 
-# The SkillBuilder object acts as the entry point for your skill, routing all request and response
-# payloads to the handlers above. Make sure any new handlers or interceptors you've
-# defined are included below. The order matters - they're processed top to bottom.
+# Request and Response loggers
+class RequestLogger(AbstractRequestInterceptor):
+    """Log the alexa requests."""
+
+    def process(self, handler_input):
+        # type: (HandlerInput) -> None
+        logger.debug("Alexa Request: {}".format(
+            handler_input.request_envelope.request))
 
 
-sb = SkillBuilder()
+class ResponseLogger(AbstractResponseInterceptor):
+    """Log the alexa responses."""
 
-sb.add_request_handler(LaunchRequestHandler())
-sb.add_request_handler(PredictionIntentHandler())
-sb.add_request_handler(InformationIntentHandler())
+    def process(self, handler_input, response):
+        # type: (HandlerInput, Response) -> None
+        logger.debug("Alexa Response: {}".format(response))
 
+
+# Register intent handlers
+sb = CustomSkillBuilder(persistence_adapter = dynamodb_adapter)
+
+
+sb.add_request_handler(LaunchHandler())
 sb.add_request_handler(HelpIntentHandler())
 sb.add_request_handler(CancelOrStopIntentHandler())
+sb.add_request_handler(FallbackIntentHandler())
 sb.add_request_handler(SessionEndedRequestHandler())
-sb.add_request_handler(
-    IntentReflectorHandler())  # make sure IntentReflectorHandler is last so it doesn't override your custom intent handlers
 
+# Register exception handlers
 sb.add_exception_handler(CatchAllExceptionHandler())
 
+# Register request and response interceptors
+sb.add_global_request_interceptor(LocalizationInterceptor())
+sb.add_global_request_interceptor(RequestLogger())
+sb.add_global_response_interceptor(ResponseLogger())
+
+# Handler name that is used on AWS lambda
 lambda_handler = sb.lambda_handler()
