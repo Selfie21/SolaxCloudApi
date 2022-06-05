@@ -98,7 +98,6 @@ class LaunchHandler(AbstractRequestHandler):
             token_id = attr['token_id']
             site_id = attr['site_id']
 
-            # token id 20220524015936043146470 site id SWBBCCDVNZ
             ENDPOINT = r'https://www.solaxcloud.com:9443/proxy/api/getRealtimeInfo.do'
             kwargs = {'tokenId': token_id, 'sn': site_id}
             data = Client.request('GET', ENDPOINT, **kwargs)

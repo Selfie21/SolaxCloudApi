@@ -2,8 +2,8 @@ from Client import Client
 
 if __name__ == "__main__":
 
-    token_id = '20220524015936043146470'
-    site_id = 'SWBBCCDVNZ'
+    token_id = ''
+    site_id = ''
     ENDPOINT = r'https://www.solaxcloud.com:9443/proxy/api/getRealtimeInfo.do'
 
     kwargs = {'tokenId': token_id,
